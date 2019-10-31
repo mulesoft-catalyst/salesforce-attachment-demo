@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:file="http://www.mulesoft.org/schema/mule/file" xmlns:dw="http://www.mulesoft.org/schema/mule/ee/dw" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:sfdc="http://www.mulesoft.org/schema/mule/sfdc" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/sfdc http://www.mulesoft.org/schema/mule/sfdc/current/mule-sfdc.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.mulesoft.org/schema/mule/ee/dw http://www.mulesoft.org/schema/mule/ee/dw/current/dw.xsd
+http://www.mulesoft.org/schema/mule/file http://www.mulesoft.org/schema/mule/file/current/mule-file.xsd">
+    <sfdc:cached-basic-config name="Salesforce__Basic_Authentication" username="username" password="password" securityToken="securitytoken" doc:name="Salesforce: Basic Authentication"/>
+    <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="8081" doc:name="HTTP Listener Configuration"/>
+    <file:connector name="File" autoDelete="true" streaming="true" validateConnections="true" doc:name="File"/>
+    <flow name="sf-attachment-demoFlow">
+        <http:listener config-ref="HTTP_Listener_Configuration" path="/accounts" doc:name="HTTP"/>
+        <sfdc:query config-ref="Salesforce__Basic_Authentication" query="dsql:SELECT Id,Name FROM Account" doc:name="Salesforce"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+payload map $]]></dw:set-payload>
+        </dw:transform-message>
+    </flow>
+    <flow name="sf-attachment-demoFlow1">
+        <file:inbound-endpoint path="src/main/resources/in" moveToDirectory="src/main/resources/out" connector-ref="File" responseTimeout="10000" doc:name="File"/>
+        <dw:transform-message doc:name="Prepare Attachment">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+[{
+	Title: "Sample3.pdf",
+	PathOnClient: "PathOnClient",
+	VersionData: payload
+	
+}]]]></dw:set-payload>
+        </dw:transform-message>
+        <sfdc:create config-ref="Salesforce__Basic_Authentication" type="ContentVersion" doc:name="Create Attachment">
+            <sfdc:objects ref="#[payload]"/>
+        </sfdc:create>
+        <dw:transform-message doc:name="Save ContentVersion Id">
+            <dw:set-variable variableName="ContentVersionId"><![CDATA[%dw 1.0
+%output application/java
+---
+payload[0].id
+]]></dw:set-variable>
+        </dw:transform-message>
+        <sfdc:query config-ref="Salesforce__Basic_Authentication" query="dsql:SELECT ContentDocumentId FROM ContentVersion WHERE Id = '#[flowVars.ContentVersionId]'" doc:name="Get ContentDocument Id"/>
+        <dw:transform-message doc:name="Transform Message">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/json
+---
+payload map $]]></dw:set-payload>
+        </dw:transform-message>
+        <dw:transform-message doc:name="Save ContentDocument Id">
+            <dw:set-variable variableName="ContentDocumentId"><![CDATA[%dw 1.0
+%output application/java
+---
+payload[0].ContentDocumentId]]></dw:set-variable>
+        </dw:transform-message>
+        <dw:transform-message doc:name="Prepare Link Attachment">
+            <dw:set-payload><![CDATA[%dw 1.0
+%output application/java
+---
+[{
+	LinkedEntityId: "0012E00001u1rfUQAQ",
+	ContentDocumentId: flowVars.ContentDocumentId,	
+	ShareType: "I"
+}]]]></dw:set-payload>
+        </dw:transform-message>
+        <sfdc:create config-ref="Salesforce__Basic_Authentication" type="ContentDocumentLink" doc:name="Link Attachment">
+            <sfdc:objects ref="#[payload]"/>
+        </sfdc:create>
+        <logger level="INFO" doc:name="Logger"/>
+    </flow>
+</mule>
